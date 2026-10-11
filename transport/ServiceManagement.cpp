@@ -371,11 +371,17 @@ sp<IServiceManager1_2> defaultServiceManager1_2() {
             return gDefaultServiceManager;
         }
 
+        unsigned recoveryAttempts = 0;
         while (gDefaultServiceManager == nullptr) {
             gDefaultServiceManager =
                 fromBinder<IServiceManager1_2, BpHwServiceManager, BnHwServiceManager>(
                     ProcessState::self()->getContextObject(nullptr));
             if (gDefaultServiceManager == nullptr) {
+                if (kIsRecovery && base::GetBoolProperty("ro.recovery.hidl_binder", false) &&
+                    ++recoveryAttempts >= 10) {
+                    LOG(ERROR) << "Recovery hwservicemanager did not become available.";
+                    return nullptr;
+                }
                 LOG(ERROR) << "Waited for hwservicemanager, but got nullptr.";
                 sleep(1);
             }
@@ -422,8 +428,8 @@ static bool matchPackageName(const std::string& lib, std::string* matchedName,
 }
 
 static void registerReference(const hidl_string &interfaceName, const hidl_string &instanceName) {
-    if (kIsRecovery) {
-        // No hwservicemanager in recovery.
+    if (kIsRecovery && !base::GetBoolProperty("ro.recovery.hidl_binder", false)) {
+        // Standard recovery has no hwservicemanager.
         return;
     }
 
@@ -898,7 +904,7 @@ sp<::android::hidl::base::V1_0::IBase> getRawServiceInternal(const std::string& 
 
     sp<IServiceManager1_1> sm;
     Transport transport = Transport::EMPTY;
-    if (kIsRecovery) {
+    if (kIsRecovery && !base::GetBoolProperty("ro.recovery.hidl_binder", false)) {
         transport = Transport::PASSTHROUGH;
     } else {
         sm = defaultServiceManager1_1();
